@@ -13,16 +13,10 @@
  * @return {ProgressBar}
  */
 function getProgressBar(operation, framesCount) {
-  return new di.ProgressBar(
-    operation +
-      " " +
-      di.chalk.magenta("frame :current/:total") +
-      " :percent [:bar] :etas",
-    {
-      width: 30,
-      total: framesCount,
-    }
-  );
+  return new di.ProgressBar(operation + ' ' + di.chalk.magenta('frame :current/:total') + ' :percent [:bar] :etas', {
+    width: 30,
+    total: framesCount,
+  });
 }
 
 /**
@@ -35,9 +29,9 @@ function writeRecordingData(recordingFile) {
   return new Promise(function (resolve, reject) {
     // Write the data into data.json file in the root path of the app
     di.fs.writeFile(
-      di.path.join(ROOT_PATH, "render/data.json"),
+      di.path.join(ROOT_PATH, 'render/data.json'),
       JSON.stringify(recordingFile.json),
-      "utf8",
+      'utf8',
       function (error) {
         if (error) {
           return reject(error);
@@ -80,7 +74,7 @@ function loadPNG(path) {
  */
 function getFrameDimensions() {
   // The path of the first rendered frame
-  var framePath = di.path.join(ROOT_PATH, "render/frames/0.png");
+  var framePath = di.path.join(ROOT_PATH, 'render/frames/0.png');
 
   // Read and parse a PNG image file
   return loadPNG(framePath).then(function (png) {
@@ -103,37 +97,53 @@ function renderFrames(records, options) {
     // The number of frames
     var framesCount = records.length;
 
+    // Track execution time
+    var start = Date.now();
+
     // Create a progress bar
-    var progressBar = getProgressBar(
-      "Rendering",
-      Math.ceil(framesCount / options.step)
-    );
+    var progressBar = getProgressBar('Rendering', Math.ceil(framesCount / options.step));
 
     // Execute the rendering process
-    var render = di.spawn(
-      di.electron,
-      [di.path.join(ROOT_PATH, "render/index.js"), options.step],
-      { detached: false }
-    );
+    var render = di.spawn(di.electron, [di.path.join(ROOT_PATH, 'render/index.js'), options.step], { detached: false });
+    render.stdout.on('data', onData);
+    render.stderr.on('data', onError);
+    render.on('close', onClose);
 
-    render.stderr.on("data", function (error) {
-      render.kill();
-      reject(new Error(error));
-    });
-
-    render.stdout.on("data", function (data) {
+    // Track progress of rendering through stdout
+    function onData(data) {
       // Is not a recordIndex (to skip Electron's logs or new lines)
       if (di.is.not.number(parseInt(data.toString()))) {
         return;
       }
 
       progressBar.tick();
+    }
 
-      // Rendering is completed
-      if (progressBar.complete) {
+    // Track rendering errors observed on stderr
+    function onError(error) {
+      // If error is Buffer, print it, otherwise reject
+      if (!!error && error instanceof Buffer) {
+        console.log(di.chalk.yellow(`[render] ${error.toString('utf8').trim()}`));
+      } else {
+        render.kill();
+        reject(new Error('Unknown error [' + typeof error + ']: ' + error));
+      }
+    }
+
+    // React when rendering process finishes
+    function onClose(code) {
+      if (code !== 0) {
+        reject(new Error('Rendering exited with code ' + code));
+      } else {
+        if (progressBar.complete) {
+          console.log(di.chalk.green('[render] Process successfully completed in ' + (Date.now() - start) + 'ms.'));
+        } else {
+          console.log(di.chalk.yellow('[render] Process completion unverified'));
+        }
+
         resolve();
       }
-    });
+    }
   });
 }
 
@@ -150,14 +160,14 @@ function mergeFrames(records, options, frameDimensions) {
     // The number of frames
     var framesCount = records.length;
 
+    // Track execution time
+    var start = Date.now();
+
     // Used for the step option
     var stepsCounter = 0;
 
     // Create a progress bar
-    var progressBar = getProgressBar(
-      "Merging",
-      Math.ceil(framesCount / options.step)
-    );
+    var progressBar = getProgressBar('Merging', Math.ceil(framesCount / options.step));
 
     // The gif image
     var gif = new di.GIFEncoder(frameDimensions.width, frameDimensions.height, {
@@ -188,11 +198,7 @@ function mergeFrames(records, options, frameDimensions) {
         stepsCounter = (stepsCounter + 1) % options.step;
 
         // The path of the rendered frame
-        var framePath = di.path.join(
-          ROOT_PATH,
-          "render/frames",
-          index + ".png"
-        );
+        var framePath = di.path.join(ROOT_PATH, 'render/frames', index + '.png');
 
         // Read and parse the rendered frame
         loadPNG(framePath)
@@ -221,6 +227,9 @@ function mergeFrames(records, options, frameDimensions) {
 
         // Write the footer
         gif.finish();
+
+        // Finish
+        console.log(di.chalk.green('[merge] Process successfully completed in ' + (Date.now() - start) + 'ms.'));
         resolve();
       }
     );
@@ -234,7 +243,7 @@ function mergeFrames(records, options, frameDimensions) {
  */
 function cleanup() {
   return new Promise(function (resolve, reject) {
-    di.fs.emptyDir(di.path.join(ROOT_PATH, "render/frames"), function (error) {
+    di.fs.emptyDir(di.path.join(ROOT_PATH, 'render/frames'), function (error) {
       if (error) {
         return reject(error);
       }
@@ -250,8 +259,8 @@ function cleanup() {
  * @param {String} outputFile the path of the rendered image
  */
 function done(outputFile) {
-  console.log("\n" + di.chalk.green("Successfully Rendered"));
-  console.log("The animated GIF image is saved into the file:");
+  console.log('\n' + di.chalk.green('Successfully Rendered'));
+  console.log('The animated GIF image is saved into the file:');
   console.log(di.chalk.magenta(outputFile));
   process.exit();
 }
@@ -270,15 +279,13 @@ function command(argv) {
   var framesCount = records.length;
 
   // The path of the output file
-  var outputFile = di.utility.resolveFilePath(
-    "render" + new Date().getTime(),
-    "gif"
-  );
+  var outputFile = di.utility.resolveFilePath('render' + Date.now(), 'gif');
 
   // For adjusting (calculating) the frames delays
   var adjustFramesDelaysOptions = {
     frameDelay: config.frameDelay,
     maxIdleTime: config.maxIdleTime,
+    speedFactor: argv.speedFactor,
   };
 
   // For rendering the frames into PNG images
@@ -318,11 +325,7 @@ function command(argv) {
       di._.partial(renderFrames, records, renderingOptions),
 
       // Adjust frames delays
-      di._.partial(
-        di.commands.play.adjustFramesDelays,
-        records,
-        adjustFramesDelaysOptions
-      ),
+      di._.partial(di.commands.play.adjustFramesDelays, records, adjustFramesDelaysOptions),
 
       // Get the dimensions of the first rendered frame
       di._.partial(getFrameDimensions),
@@ -347,13 +350,13 @@ function command(argv) {
  * Command's usage
  * @type {String}
  */
-module.exports.command = "render <recordingFile>";
+module.exports.command = 'render <recordingFile>';
 
 /**
  * Command's description
  * @type {String}
  */
-module.exports.describe = "Render a recording file as an animated gif image";
+module.exports.describe = 'Render a recording file as an animated gif image';
 
 /**
  * Command's handler function
@@ -368,35 +371,43 @@ module.exports.handler = command;
  */
 module.exports.builder = function (yargs) {
   // Define the recordingFile argument
-  yargs.positional("recordingFile", {
-    describe: "The recording file",
-    type: "string",
+  yargs.positional('recordingFile', {
+    describe: 'The recording file',
+    type: 'string',
     coerce: di.utility.loadYAML,
   });
 
   // Define the output option
-  yargs.option("o", {
-    alias: "output",
-    type: "string",
-    describe: "A name for the output file",
+  yargs.option('o', {
+    alias: 'output',
+    type: 'string',
+    describe: 'A name for the output file',
     requiresArg: true,
-    coerce: di._.partial(di.utility.resolveFilePath, di._, "gif"),
+    coerce: di._.partial(di.utility.resolveFilePath, di._, 'gif'),
   });
 
   // Define the quality option
-  yargs.option("q", {
-    alias: "quality",
-    type: "number",
-    describe: "The quality of the rendered image (1 - 100)",
+  yargs.option('q', {
+    alias: 'quality',
+    type: 'number',
+    describe: 'The quality of the rendered image (1 - 100)',
     requiresArg: true,
   });
 
   // Define the quality option
-  yargs.option("s", {
-    alias: "step",
-    type: "number",
-    describe: "To reduce the number of rendered frames (step > 1)",
+  yargs.option('s', {
+    alias: 'step',
+    type: 'number',
+    describe: 'To reduce the number of rendered frames (step > 1)',
     requiresArg: true,
     default: 1,
+  });
+
+  // Define the speed-factor option
+  yargs.option('f', {
+    alias: 'speed-factor',
+    describe: 'Speed factor, multiply the frames delays by this factor',
+    type: 'number',
+    default: 1.0,
   });
 };
